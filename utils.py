@@ -12,18 +12,22 @@ def save_some_examples(gen, val_loader, epoch, folder):
         y_fake = gen(x)
         y_fake = y_fake * 0.5 + 0.5  # remove normalization#
         save_image(y_fake, folder + f"/y_gen_{epoch}.png")
-        save_image(x * 0.5 + 0.5, folder + f"/input_{epoch}.png")
-        if epoch == 1:
-            save_image(y * 0.5 + 0.5, folder + f"/label_{epoch}.png")
+        save_image(x *0.5 + 0.5, folder + f"/input_{epoch}.png")
+        save_image(y, folder + f"/label_{epoch}.png")
     gen.train()
 
-def save_watermark_extraction(watermark_extractor, epoch, folder, x, secret):
+def save_watermark_extraction(gen, watermark_extractor, epoch, data_loader, folder, secret):
+    x, y = next(iter(data_loader))
+    x, y = x.to(config.DEVICE), y.to(config.DEVICE)
+    gen.eval()
+    y_fake = gen(x)
     watermark_extractor.eval()
     with torch.no_grad():
-        extracted_watermark = watermark_extractor(x, secret)
+        extracted_watermark = watermark_extractor(y_fake, secret)
         extracted_watermark = extracted_watermark * 0.5 + 0.5  # remove normalization
         save_image(extracted_watermark, folder + f"/extracted_watermark_{epoch}.png")
     watermark_extractor.train()
+    gen.train()
 
 
 

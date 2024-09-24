@@ -1,14 +1,12 @@
 import torch
-from segmentation_dataset import SegmentationDataset
 from utils import save_checkpoint, load_checkpoint, save_some_examples, load_watermark_image, generate_zero_watermark, save_watermark_extraction
 import torch.nn as nn
 import torch.optim as optim
 import config
 from dataset import MapDataset
-from flowers_dataset import FlowersDataset
 from generator_model import Generator
 from discriminator_model import Discriminator
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 from watermark_extraction import WatermarkExtractionModel  # Import the extraction model
 from losses import CustomWatermarkLoss  # Assuming you implemented the loss in a separate file
@@ -92,15 +90,8 @@ def main():
         load_checkpoint(
             config.CHECKPOINT_DISC, disc, opt_disc, config.LEARNING_RATE,
         )
-    if(config.DATASET == "segmentation"):
-        dataset = SegmentationDataset(root_dir=config.TRAIN_DIR)
-        train_size = int(0.8 * len(dataset))
-        val_size = len(dataset) - train_size
-        train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
-    else:
-        train_dataset = MapDataset(root_dir=config.TRAIN_DIR) if config.DATASET == "maps" else FlowersDataset(root_dir=config.TRAIN_DIR)
-        val_dataset = MapDataset(root_dir=config.VAL_DIR) if config.DATASET == "maps" else FlowersDataset(root_dir=config.VAL_DIR)
 
+    train_dataset = MapDataset(root_dir=config.TRAIN_DIR)
     train_loader = DataLoader(
         train_dataset,
         batch_size=config.BATCH_SIZE,
@@ -109,6 +100,7 @@ def main():
     )
     g_scaler = torch.cuda.amp.GradScaler()
     d_scaler = torch.cuda.amp.GradScaler()
+    val_dataset = MapDataset(root_dir=config.VAL_DIR)
     val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False)
 
     for epoch in range(config.NUM_EPOCHS):
@@ -116,74 +108,13 @@ def main():
             disc, gen, extraction_model, train_loader, opt_disc, opt_gen, L1_LOSS, BCE, custom_loss, g_scaler, d_scaler,
         )
 
-        # Perform validation at the end of each epoch
-        #val_loss, val_custom_loss = validate_model(gen, extraction_model, val_loader, L1_LOSS, BCE, custom_loss)
-
-        #print(f"Epoch {epoch} - Validation Loss: {val_loss}, Validation Custom Watermark Loss: {val_custom_loss}")
-
-
         if config.SAVE_MODEL and epoch % 100 == 0 or epoch == config.NUM_EPOCHS - 1:
-            save_checkpoint(gen, opt_gen, filename=f"checkpoints_segmentation/_epoch{epoch}_{config.CHECKPOINT_GEN}")
-            save_checkpoint(disc, opt_disc, filename=f"checkpoints_segmentation/_epoch{epoch}_{config.CHECKPOINT_DISC}")
-            save_checkpoint(extraction_model, opt_gen, filename=f"checkpoints_segmentation/_epoch{epoch}_extraction_model.pth.tar")
+            save_checkpoint(gen, opt_gen, filename=f"checkpoints/_epoch{epoch}_{config.CHECKPOINT_GEN}")
+            save_checkpoint(disc, opt_disc, filename=f"checkpoints/_epoch{epoch}_{config.CHECKPOINT_DISC}")
+            save_checkpoint(extraction_model, opt_gen, filename=f"checkpoints/_epoch{epoch}_extraction_model.pth.tar")
 
-        save_some_examples(gen, val_loader, epoch, folder="evaluation_segmentation")
-        save_watermark_extraction(gen, extraction_model, epoch, val_loader, "evaluation_segmentation", load_key())
-
-
-def validate_model(gen, extraction_model, val_loader, l1_loss, bce, custom_loss):
-    gen.eval()
-    extraction_model.eval()
-    
-    loop = tqdm(val_loader, leave=True)
-    total_val_loss = 0
-    total_custom_w_loss = 0
-    num_batches = len(val_loader)
-    
-    with torch.no_grad():  # Disable gradient calculations for validation
-        for idx, (x, y) in enumerate(loop):
-            x = x.to(config.DEVICE)
-            y = y.to(config.DEVICE)
-            
-            y_fake = gen(x)
-            
-            # Calculate L1 Loss and BCE (or other losses)
-            G_fake_loss = bce(gen(x), torch.ones_like(y_fake))
-            L1 = l1_loss(y_fake, y) * config.L1_LAMBDA
-            G_loss = G_fake_loss + L1
-            
-            # Calculate the custom watermark loss
-            custom_w_loss = custom_loss(
-                G=gen,
-                E=extraction_model,
-                S1=x,
-                S2=y,
-                k=load_key(),
-                w=load_watermark_image(height=64, width=64, filepath="dataset/watermark/watermark.jpg"),
-                wz=generate_zero_watermark(height=64, width=64),
-                incorrect_keys=generate_incorrect_keys_batch("secret_key.pt", 8, x.size(0)),
-            )
-            
-            G_loss += custom_w_loss
-            
-            # Accumulate the losses for reporting
-            total_val_loss += G_loss.item()
-            total_custom_w_loss += custom_w_loss.item()
-
-            if idx % 10 == 0:
-                loop.set_postfix(
-                    val_loss=total_val_loss / (idx + 1),
-                    custom_loss=total_custom_w_loss / (idx + 1)
-                )
-    
-    gen.train()
-    extraction_model.train()
-    
-    # Return average validation loss over the dataset
-    avg_val_loss = total_val_loss / num_batches
-    avg_custom_w_loss = total_custom_w_loss / num_batches
-    
-    return avg_val_loss, avg_custom_w_loss
+        save_some_examples(gen, val_loader, epoch, folder="evaluation")
+        save_watermark_extraction(gen, extraction_model, epoch, val_loader, "evaluation", load_key())
 
 
 if __name__ == "__main__":

@@ -52,6 +52,7 @@ __pycache__/
 # PyTorch
 checkpoints/
 *.pth
+*.pth.tar
 
 # Jupyter Notebook
 .ipynb_checkpoints/
